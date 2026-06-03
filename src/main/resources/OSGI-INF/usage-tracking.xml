@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    DS 1.2 component descriptor for Usage Tracking Service Component.
+
+    Using the v1.2.0 namespace so that maven-bundle-plugin 3.2.0 generates:
+        Require-Capability: osgi.extender;
+            filter:="(&(osgi.extender=osgi.component)(version>=1.2.0)(!(version>=2.0.0)))"
+
+    This matches the DS capability provided by WSO2 IS 7.2's Equinox runtime.
+-->
+<scr:component xmlns:scr="http://www.osgi.org/xmlns/scr/v1.2.0"
+               name="org.wso2.carbon.identity.usage.metering.component"
+               immediate="true">
+
+    <implementation class="org.wso2.carbon.identity.usage.metering.internal.UsageTrackingServiceComponent"/>
+
+    <!--
+        MANDATORY / DYNAMIC reference to IdentityEventService.
+        DS delays activation until the service is available (cardinality="1..1").
+    -->
+    <reference name="identity.event.service"
+               interface="org.wso2.carbon.identity.event.services.IdentityEventService"
+               cardinality="1..1"
+               policy="dynamic"
+               bind="setIdentityEventService"
+               unbind="unsetIdentityEventService"/>
+
+</scr:component>

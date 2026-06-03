@@ -1,0 +1,221 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+                             https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>org.wso2.carbon.identity</groupId>
+    <artifactId>org.wso2.carbon.identity.usage.metering</artifactId>
+    <version>1.0.0</version>
+    <packaging>bundle</packaging>
+    <name>WSO2 IS Usage Tracking Metrics</name>
+    <description>Usage tracking metrics (MAU, M2M tokens, agent actions) for WSO2 Identity Server 7.2</description>
+
+    <properties>
+        <maven.compiler.source>1.8</maven.compiler.source>
+        <maven.compiler.target>1.8</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+
+        <!--
+            Versions pinned to WSO2 IS 7.2.0 (product-is tag v7.2.0).
+            carbon.identity.framework.version = 7.8.586  (exact IS 7.2 value)
+            maven.bundle.plugin.version matches the reference pom from
+              org.wso2.carbon.usage.data.collector.identity shipped with IS 7.2.
+        -->
+        <carbon.identity.framework.version>7.8.586</carbon.identity.framework.version>
+        <osgi.version>6.0.0</osgi.version>
+        <slf4j.version>1.7.36</slf4j.version>
+        <maven.bundle.plugin.version>3.2.0</maven.bundle.plugin.version>
+
+        <!-- OSGi Import-Package version ranges (aligned with reference pom) -->
+        <osgi.framework.imp.pkg.version.range>[1.7.0, 2.0.0)</osgi.framework.imp.pkg.version.range>
+        <osgi.service.component.imp.pkg.version.range>[1.2.0, 2.0.0)</osgi.service.component.imp.pkg.version.range>
+
+        <!-- Test -->
+        <junit.version>5.10.0</junit.version>
+        <mockito.version>5.3.1</mockito.version>
+        <h2.version>2.2.224</h2.version>
+    </properties>
+
+    <dependencies>
+        <!-- ==================== WSO2 Identity Framework ==================== -->
+        <!--
+            identity.base  – IdentityRuntimeException
+            identity.core  – InitConfig, MessageContext, IdentityDatabaseUtil
+            identity.event – AbstractEventHandler, Event, ModuleConfiguration,
+                             IdentityEventException, IdentityEventService
+            All three are already deployed inside IS 7.2; scope=provided.
+        -->
+        <dependency>
+            <groupId>org.wso2.carbon.identity.framework</groupId>
+            <artifactId>org.wso2.carbon.identity.base</artifactId>
+            <version>${carbon.identity.framework.version}</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.wso2.carbon.identity.framework</groupId>
+            <artifactId>org.wso2.carbon.identity.core</artifactId>
+            <version>${carbon.identity.framework.version}</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.wso2.carbon.identity.framework</groupId>
+            <artifactId>org.wso2.carbon.identity.event</artifactId>
+            <version>${carbon.identity.framework.version}</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.wso2.carbon.identity.framework</groupId>
+            <artifactId>org.wso2.carbon.identity.application.authentication.framework</artifactId>
+            <version>${carbon.identity.framework.version}</version>
+            <scope>provided</scope>
+        </dependency>
+
+        <!-- ==================== OSGi ==================== -->
+        <dependency>
+            <groupId>org.osgi</groupId>
+            <artifactId>osgi.core</artifactId>
+            <version>${osgi.version}</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.osgi</groupId>
+            <artifactId>osgi.cmpn</artifactId>
+            <version>${osgi.version}</version>
+            <scope>provided</scope>
+        </dependency>
+
+        <!-- ==================== Logging ==================== -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+            <version>${slf4j.version}</version>
+            <scope>provided</scope>
+        </dependency>
+
+        <!-- ==================== Test ==================== -->
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>${junit.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-core</artifactId>
+            <version>${mockito.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-junit-jupiter</artifactId>
+            <version>${mockito.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
+            <version>${h2.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-simple</artifactId>
+            <version>${slf4j.version}</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!--
+                OSGi bundle plugin – version aligned with reference pom from
+                org.wso2.carbon.usage.data.collector.identity (IS 7.2).
+
+                KEY: version 3.2.0 (bndlib 3.x) reads the OSGI-INF XML namespace
+                to determine DS spec version and generates:
+                    Require-Capability: osgi.extender;
+                        filter:="(&(osgi.extender=osgi.component)(version>=1.2.0)…)"
+                instead of the >=1.3.0 that bndlib 5.x produces when it sees
+                DS 1.3 annotations.  This matches the DS capability provided by
+                IS 7.2's Equinox runtime.
+            -->
+            <plugin>
+                <groupId>org.apache.felix</groupId>
+                <artifactId>maven-bundle-plugin</artifactId>
+                <version>${maven.bundle.plugin.version}</version>
+                <extensions>true</extensions>
+                <configuration>
+                    <instructions>
+                        <Bundle-SymbolicName>${project.artifactId}</Bundle-SymbolicName>
+                        <Bundle-Name>${project.name}</Bundle-Name>
+                        <Bundle-Version>${project.version}</Bundle-Version>
+                        <Bundle-Description>${project.description}</Bundle-Description>
+                        <Export-Package>
+                            org.wso2.carbon.identity.usage.metering.*;version="${project.version}"
+                        </Export-Package>
+                        <!--
+                            Only list packages actually imported by this bundle's code.
+                            java.* packages are boot-delegated by the OSGi framework.
+                            Version ranges follow the reference pom conventions.
+                        -->
+                        <Import-Package>
+                            org.osgi.framework.*;version="${osgi.framework.imp.pkg.version.range}",
+                            org.osgi.service.component.*;version="${osgi.service.component.imp.pkg.version.range}",
+                            org.wso2.carbon.identity.base.*;version="[7.0,8)",
+                            org.wso2.carbon.identity.core.*;version="[7.0,8)",
+                            org.wso2.carbon.identity.event.*;version="[7.0,8)",
+                            org.wso2.carbon.identity.application.authentication.framework.*;version="[7.0,8)",
+                            org.slf4j.*;version="[1.7,2)"
+                        </Import-Package>
+                        <!--
+                            DS component descriptor is declared manually in
+                            src/main/resources/OSGI-INF/usage-tracking.xml using the
+                            DS 1.2 namespace (v1.2.0).  No _dsannotations processing.
+                        -->
+                        <Service-Component>OSGI-INF/*.xml</Service-Component>
+                        <!--
+                            bndlib 3.2.0 pre-dates Java 11 and cannot map class-file
+                            version 55 to an osgi.ee filter, producing a null filter
+                            that causes NPE + "Null query" build failures.
+                            _noee suppresses the auto-generated Require-Capability:osgi.ee
+                            header so bndlib does not attempt the mapping.
+                        -->
+                        <_noee>true</_noee>
+                    </instructions>
+                </configuration>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.11.0</version>
+                <configuration>
+                    <source>11</source>
+                    <target>11</target>
+                </configuration>
+            </plugin>
+
+            <!-- JUnit 5 surefire -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.1.2</version>
+                <configuration>
+                    <useModulePath>false</useModulePath>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
+    <repositories>
+        <repository>
+            <id>wso2-nexus</id>
+            <name>WSO2 Public Repository</name>
+            <url>https://maven.wso2.org/nexus/content/groups/wso2-public/</url>
+            <releases><enabled>true</enabled></releases>
+            <snapshots><enabled>false</enabled></snapshots>
+        </repository>
+    </repositories>
+</project>

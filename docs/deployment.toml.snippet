@@ -1,0 +1,51 @@
+# ============================================================
+# deployment.toml configuration snippet for MAU Tracking Extension
+# Add this to <IS_HOME>/repository/conf/deployment.toml
+# ============================================================
+
+# ── Event Handler Registration & Configuration ──────────────
+# All MAU tracking settings live under this single block so
+# that IS reads them via ModuleConfiguration.getModuleProperties()
+# in MAULoginEventHandler.init().
+
+[[event_handler]]
+name          = "mauLoginEventHandler"
+subscriptions = ["AUTHENTICATION_SUCCESS"]
+
+[event_handler.properties]
+
+# ── DB Sync / Flush interval ─────────────────────────────────
+# How often the in-memory cache is flushed to IDN_MAU_TRACKING.
+# Pair with flushIntervalUnit to express the desired granularity.
+#
+#   Examples:
+#     flushInterval = 15  + flushIntervalUnit = "MINUTES"  → flush every 15 min (default)
+#     flushInterval = 1   + flushIntervalUnit = "HOURS"    → flush hourly
+#     flushInterval = 1   + flushIntervalUnit = "DAYS"     → flush once a day (low-traffic)
+#     flushInterval = 7   + flushIntervalUnit = "DAYS"     → flush weekly
+#
+# Note: MAU accuracy is not affected by a longer flush interval — the in-memory
+# cache is durable for up to cacheRetentionDays, and the DB upsert is idempotent.
+flushInterval     = 15
+flushIntervalUnit = "MINUTES"   # MINUTES | HOURS | DAYS
+
+# ── Cache retention ───────────────────────────────────────────
+# Number of days in-memory entries are kept before being evicted.
+# Must be > 30 to cover delayed DB writes / month-end summarisation.
+# Default: 40
+cacheRetentionDays = 40
+
+# ── DB retention ──────────────────────────────────────────────
+# Number of days rows are retained in IDN_MAU_TRACKING.
+# Covers two calendar months; summary rows in IDN_MAU_SUMMARY are kept indefinitely.
+# Default: 60
+dbRetentionDays = 60
+
+# ── Central publishing ────────────────────────────────────────
+# WSO2 central MAU reporting endpoint.
+# Leave empty (or omit) to disable external publishing.
+centralEndpoint = "https://central.wso2.com/api/v1/mau"
+
+# Bearer token for the central endpoint.
+# Leave empty when the endpoint is unauthenticated (e.g. dev/test).
+centralAuthToken = ""
