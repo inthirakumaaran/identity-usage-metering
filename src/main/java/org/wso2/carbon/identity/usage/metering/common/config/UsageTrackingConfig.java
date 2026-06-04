@@ -47,11 +47,13 @@ public final class UsageTrackingConfig {
     public static final String PROP_MAU_DB_RETENTION        = "dbRetentionDays";
 
     // M2M
-    public static final String PROP_M2M_ENABLED             = "enabled";
+    public static final String PROP_M2M_ENABLED                  = "enabled";
+    public static final String PROP_M2M_FLUSH_INTERVAL_SECONDS   = "flushIntervalSeconds";
 
     // Agent
-    public static final String PROP_AGENT_ENABLED           = "enabled";
-    public static final String PROP_AGENT_USERSTORE_DOMAIN  = "userStoreDomain";
+    public static final String PROP_AGENT_ENABLED                 = "enabled";
+    public static final String PROP_AGENT_USERSTORE_DOMAIN        = "userStoreDomain";
+    public static final String PROP_AGENT_FLUSH_INTERVAL_SECONDS  = "flushIntervalSeconds";
 
     // ── Defaults ──────────────────────────────────────────────────────────────
 
@@ -64,11 +66,13 @@ public final class UsageTrackingConfig {
     private static final AtomicInteger             mauDbRetentionDays  = new AtomicInteger(60);
 
     // M2M
-    private static final AtomicBoolean             m2mEnabled          = new AtomicBoolean(true);
+    private static final AtomicBoolean             m2mEnabled               = new AtomicBoolean(true);
+    private static final AtomicInteger             m2mFlushIntervalSeconds  = new AtomicInteger(3600);
 
     // Agent
-    private static final AtomicBoolean             agentEnabled        = new AtomicBoolean(false);
-    private static final AtomicReference<String>   agentUserStoreDomain = new AtomicReference<>("AGENTS");
+    private static final AtomicBoolean             agentEnabled              = new AtomicBoolean(false);
+    private static final AtomicReference<String>   agentUserStoreDomain      = new AtomicReference<>("AGENT");
+    private static final AtomicInteger             agentFlushIntervalSeconds = new AtomicInteger(3600);
 
     private UsageTrackingConfig() {}
 
@@ -79,9 +83,11 @@ public final class UsageTrackingConfig {
     public static TimeUnit getMauFlushIntervalUnit()  { return mauFlushIntervalUnit.get(); }
     public static int      getMauCacheRetentionDays() { return mauCacheRetentionDays.get(); }
     public static int      getMauDbRetentionDays()    { return mauDbRetentionDays.get(); }
-    public static boolean  isM2mEnabled()             { return m2mEnabled.get(); }
-    public static boolean  isAgentEnabled()           { return agentEnabled.get(); }
-    public static String   getAgentUserStoreDomain()  { return agentUserStoreDomain.get(); }
+    public static boolean  isM2mEnabled()                  { return m2mEnabled.get(); }
+    public static int      getM2mFlushIntervalSeconds()    { return m2mFlushIntervalSeconds.get(); }
+    public static boolean  isAgentEnabled()                { return agentEnabled.get(); }
+    public static String   getAgentUserStoreDomain()       { return agentUserStoreDomain.get(); }
+    public static int      getAgentFlushIntervalSeconds()  { return agentFlushIntervalSeconds.get(); }
 
     // ── Package-private setters (called from handler init methods) ────────────
 
@@ -93,15 +99,33 @@ public final class UsageTrackingConfig {
     public static void setMauFlushIntervalUnit(TimeUnit v)   { mauFlushIntervalUnit.set(v != null ? v : TimeUnit.MINUTES); }
     public static void setMauCacheRetentionDays(int v)       { mauCacheRetentionDays.set(v); }
     public static void setMauDbRetentionDays(int v)          { mauDbRetentionDays.set(v); }
-    public static void setM2mEnabled(boolean v)              { m2mEnabled.set(v); }
-    public static void setAgentEnabled(boolean v)            { agentEnabled.set(v); }
-    public static void setAgentUserStoreDomain(String v)     { if (v != null && !v.isBlank()) agentUserStoreDomain.set(v); }
+    public static void setM2mEnabled(boolean v)                 { m2mEnabled.set(v); }
+    public static void setM2mFlushIntervalSeconds(int v)        { if (v > 0) m2mFlushIntervalSeconds.set(v); }
+    public static void setAgentEnabled(boolean v)               { agentEnabled.set(v); }
+    public static void setAgentUserStoreDomain(String v)        { if (v != null && !v.isBlank()) agentUserStoreDomain.set(v); }
+    public static void setAgentFlushIntervalSeconds(int v)      { if (v > 0) agentFlushIntervalSeconds.set(v); }
 
     // ── Node ID resolution ────────────────────────────────────────────────────
 
+    /**
+     * Resolves the default node ID at class-load time.
+     *
+     * <p>Resolution order:
+     * <ol>
+     *   <li>Explicit {@code nodeId} in {@code deployment.toml} (set via
+     *       {@link #setNodeId(String)} from a handler's {@code init()}).</li>
+     *   <li>{@code hostname_portOffset} — e.g. {@code "is-macbook_1"}.
+     *       The {@code portOffset} system property is set by Carbon when starting
+     *       a second IS instance locally with {@code -DportOffset=N}, making each
+     *       local node produce a unique ID without any manual config.</li>
+     *   <li>Random 16-char hex (container / unknown-host fallback).</li>
+     * </ol>
+     */
     private static String resolveDefaultNodeId() {
         try {
-            return InetAddress.getLocalHost().getHostName();
+            String hostname   = InetAddress.getLocalHost().getHostName();
+            String portOffset = System.getProperty("portOffset", "0");
+            return hostname + "_" + portOffset;
         } catch (UnknownHostException e) {
             return "node-" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
         }

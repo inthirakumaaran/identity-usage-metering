@@ -15,10 +15,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.wso2.carbon.identity.event.handler.AbstractEventHandler;
 import org.wso2.carbon.identity.event.services.IdentityEventService;
+import org.wso2.carbon.user.core.listener.UserOperationEventListener;
 import org.wso2.carbon.identity.usage.metering.agent.AgentLoginEventHandler;
 import org.wso2.carbon.identity.usage.metering.agent.AgentManagementListener;
 import org.wso2.carbon.identity.usage.metering.common.CountType;
 import org.wso2.carbon.identity.usage.metering.common.cache.GenericCounterCache;
+import org.wso2.carbon.identity.usage.metering.common.config.UsageTrackingConfig;
 import org.wso2.carbon.identity.usage.metering.common.dao.UsageDAO;
 import org.wso2.carbon.identity.usage.metering.common.task.CounterFlushTask;
 import org.wso2.carbon.identity.usage.metering.m2m.M2MTokenEventHandler;
@@ -27,8 +29,10 @@ import org.wso2.carbon.identity.usage.metering.mau.MAUFlushTask;
 import org.wso2.carbon.identity.usage.metering.mau.MAULoginEventHandler;
 import org.wso2.carbon.identity.usage.metering.mau.MAUMonthlyAggregationTask;
 
+import java.util.Arrays;
 import java.util.Dictionary;
 import java.util.Hashtable;
+import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -59,7 +63,9 @@ public class UsageTrackingServiceComponent {
         LOG.info("[Usage] Activating Usage Tracking Service Component.");
 
         // Shared scheduler — one thread per registered periodic task.
-        scheduler = Executors.newScheduledThreadPool(3, r -> {
+        // 7 periodic tasks: MAU flush, M2M flush, agent login flush,
+        // agent provision/update/delete/status-change flushes.
+        scheduler = Executors.newScheduledThreadPool(7, r -> {
             Thread t = new Thread(r, "usage-tracking-scheduler");
             t.setDaemon(true);
             return t;
@@ -79,35 +85,45 @@ public class UsageTrackingServiceComponent {
         LOG.info("[Usage] MAU handler registered.");
 
         // ── M2M Token pipeline ────────────────────────────────────────────────
-        GenericCounterCache m2mCache   = new GenericCounterCache();
-        M2MTokenEventHandler m2mHandler = new M2MTokenEventHandler(m2mCache);
-        CounterFlushTask m2mFlush      = new CounterFlushTask(CountType.M2M_TOKEN, m2mCache, usageDao);
-        scheduler.scheduleAtFixedRate(m2mFlush, 1, 1, TimeUnit.HOURS);
+        // Flush scheduler is started inside M2MTokenEventHandler.init() after
+        // deployment.toml properties are read — so flushIntervalSeconds is honoured.
+        GenericCounterCache m2mCache = new GenericCounterCache();
+        CounterFlushTask m2mFlush   = new CounterFlushTask(CountType.M2M_TOKEN, m2mCache, usageDao);
+        M2MTokenEventHandler m2mHandler = new M2MTokenEventHandler(scheduler, m2mFlush, m2mCache);
 
         registerHandler(ctx, m2mHandler, m2mHandler.getName());
-        LOG.info("[Usage] M2M Token handler registered (hourly flush).");
+        LOG.info("[Usage] M2M Token handler registered (flush interval from deployment.toml).");
 
-        // ── Agent Login pipeline (stub) ───────────────────────────────────────
-        GenericCounterCache agentLoginCache   = new GenericCounterCache();
+        // ── Agent pipelines ───────────────────────────────────────────────────
+        // All agent flush tasks are started by AgentLoginEventHandler.init() using
+        // the configured flushIntervalSeconds (default 3600s).
+        // A single deployment.toml block controls the interval for ALL agent counters.
+        GenericCounterCache agentLoginCache  = new GenericCounterCache();
+        GenericCounterCache agentProvCache   = new GenericCounterCache();
+        GenericCounterCache agentUpdCache    = new GenericCounterCache();
+        GenericCounterCache agentDelCache    = new GenericCounterCache();
+        GenericCounterCache agentStatusCache = new GenericCounterCache();
+
+        List<CounterFlushTask> agentFlushTasks = Arrays.asList(
+                new CounterFlushTask(CountType.AGENT_LOGIN,         agentLoginCache,  usageDao),
+                new CounterFlushTask(CountType.AGENT_PROVISION,     agentProvCache,   usageDao),
+                new CounterFlushTask(CountType.AGENT_UPDATE,        agentUpdCache,    usageDao),
+                new CounterFlushTask(CountType.AGENT_DELETE,        agentDelCache,    usageDao),
+                new CounterFlushTask(CountType.AGENT_STATUS_CHANGE, agentStatusCache, usageDao)
+        );
+
         AgentLoginEventHandler agentLoginHandler =
-                new AgentLoginEventHandler(agentLoginCache);
-        CounterFlushTask agentLoginFlush =
-                new CounterFlushTask(CountType.AGENT_LOGIN, agentLoginCache, usageDao);
-        scheduler.scheduleAtFixedRate(agentLoginFlush, 1, 1, TimeUnit.HOURS);
+                new AgentLoginEventHandler(scheduler, agentFlushTasks, agentLoginCache);
+
+        AgentManagementListener agentMgmt = new AgentManagementListener(
+                UsageTrackingConfig.getAgentUserStoreDomain(),
+                agentProvCache, agentUpdCache, agentDelCache, agentStatusCache);
 
         registerHandler(ctx, agentLoginHandler, agentLoginHandler.getName());
-        LOG.info("[Usage] Agent Login handler registered (hourly flush).");
+        ctx.getBundleContext().registerService(
+                UserOperationEventListener.class.getName(), agentMgmt, null);
 
-        // ── Agent CRUD listener (stub) ────────────────────────────────────────
-        // TODO: implement AgentManagementListener as UserOperationEventListener
-        // and register it as an OSGi service once the interface is wired.
-        GenericCounterCache agentProvCache = new GenericCounterCache();
-        GenericCounterCache agentUpdCache  = new GenericCounterCache();
-        GenericCounterCache agentDelCache  = new GenericCounterCache();
-        @SuppressWarnings("unused")
-        AgentManagementListener agentMgmt =
-                new AgentManagementListener(agentProvCache, agentUpdCache, agentDelCache);
-
+        LOG.info("[Usage] Agent handlers registered (flush interval from deployment.toml).");
         LOG.info("[Usage] Usage Tracking Service Component activated.");
     }
 

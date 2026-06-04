@@ -22,9 +22,14 @@ import org.wso2.carbon.identity.event.event.Event;
 import org.wso2.carbon.identity.event.handler.AbstractEventHandler;
 import org.wso2.carbon.identity.usage.metering.common.cache.GenericCounterCache;
 import org.wso2.carbon.identity.usage.metering.common.config.UsageTrackingConfig;
+import org.wso2.carbon.identity.usage.metering.common.task.CounterFlushTask;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Counts successful logins by agent identities.
@@ -41,18 +46,28 @@ import java.util.Properties;
  * (case-insensitive) against the {@code agent.userStoreDomain} configuration
  * property.
  *
- * <p><b>Status:</b> Stub — flush scheduling wiring is pending in
- * {@link org.wso2.carbon.identity.usage.metering.internal.UsageTrackingServiceComponent}.
+ * <p>The flush interval for ALL agent counters (login + CRUD) is controlled
+ * by {@code flushIntervalSeconds} in the {@code agentLoginUsageHandler}
+ * properties block (default 3600 s). Set it to a small value (e.g. 10)
+ * for local testing.
  */
 public class AgentLoginEventHandler extends AbstractEventHandler {
 
     private static final Logger LOG = LoggerFactory.getLogger(AgentLoginEventHandler.class);
     private static final String EVENT_AUTHENTICATION_SUCCESS = "AUTHENTICATION_SUCCESS";
 
+    private final ScheduledExecutorService scheduler;
+    /** All agent flush tasks: login + provision + update + delete + status-change. */
+    private final List<CounterFlushTask> agentFlushTasks;
     private final GenericCounterCache cache;
+    private final AtomicBoolean schedulerStarted = new AtomicBoolean(false);
 
-    public AgentLoginEventHandler(GenericCounterCache cache) {
-        this.cache = cache;
+    public AgentLoginEventHandler(ScheduledExecutorService scheduler,
+                                  List<CounterFlushTask> agentFlushTasks,
+                                  GenericCounterCache cache) {
+        this.scheduler        = scheduler;
+        this.agentFlushTasks  = agentFlushTasks;
+        this.cache            = cache;
     }
 
     @Override
@@ -68,6 +83,7 @@ public class AgentLoginEventHandler extends AbstractEventHandler {
             Properties props = ((ModuleConfiguration) this.configs).getModuleProperties();
             if (props != null && !props.isEmpty()) applyConfig(props);
         }
+        startSchedulerOnce();
     }
 
     @Override
@@ -100,6 +116,17 @@ public class AgentLoginEventHandler extends AbstractEventHandler {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
+    private void startSchedulerOnce() {
+        if (schedulerStarted.compareAndSet(false, true)) {
+            int seconds = UsageTrackingConfig.getAgentFlushIntervalSeconds();
+            for (CounterFlushTask task : agentFlushTasks) {
+                scheduler.scheduleAtFixedRate(task, seconds, seconds, TimeUnit.SECONDS);
+            }
+            LOG.info("[Agent] Flush schedulers started: interval={}s, tasks={}.",
+                    seconds, agentFlushTasks.size());
+        }
+    }
+
     private static void applyConfig(Properties props) {
         UsageTrackingConfig.setNodeId(props.getProperty(UsageTrackingConfig.PROP_NODE_ID));
         String enabled = props.getProperty(UsageTrackingConfig.PROP_AGENT_ENABLED);
@@ -107,9 +134,19 @@ public class AgentLoginEventHandler extends AbstractEventHandler {
             UsageTrackingConfig.setAgentEnabled(Boolean.parseBoolean(enabled));
         UsageTrackingConfig.setAgentUserStoreDomain(
                 props.getProperty(UsageTrackingConfig.PROP_AGENT_USERSTORE_DOMAIN));
-        LOG.info("[Agent] Config loaded: enabled={}, userStoreDomain={}, nodeId={}.",
+        String flushSecs = props.getProperty(UsageTrackingConfig.PROP_AGENT_FLUSH_INTERVAL_SECONDS);
+        if (flushSecs != null && !flushSecs.isBlank()) {
+            try {
+                UsageTrackingConfig.setAgentFlushIntervalSeconds(Integer.parseInt(flushSecs.trim()));
+            } catch (NumberFormatException e) {
+                LOG.warn("[Agent] Invalid flushIntervalSeconds '{}'; using default {}s.",
+                        flushSecs, UsageTrackingConfig.getAgentFlushIntervalSeconds());
+            }
+        }
+        LOG.info("[Agent] Config loaded: enabled={}, userStoreDomain={}, flushIntervalSeconds={}s, nodeId={}.",
                 UsageTrackingConfig.isAgentEnabled(),
                 UsageTrackingConfig.getAgentUserStoreDomain(),
+                UsageTrackingConfig.getAgentFlushIntervalSeconds(),
                 UsageTrackingConfig.getNodeId());
     }
 

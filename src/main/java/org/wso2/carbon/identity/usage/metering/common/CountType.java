@@ -18,11 +18,12 @@ package org.wso2.carbon.identity.usage.metering.common;
  * <ul>
  *   <li>MAU             → monthly  (MMYYYY,      e.g. "062026")</li>
  *   <li>M2M_TOKEN       → hourly   (YYYYMMDDHHmm, e.g. "202606021400")</li>
- *   <li>AGENT_PROVISION → daily    (YYYYMMDD,     e.g. "20260602")</li>
- *   <li>AGENT_UPDATE    → daily</li>
- *   <li>AGENT_DELETE    → daily</li>
- *   <li>AGENT_LOGIN     → daily</li>
- *   <li>AGENT_TOKEN     → hourly</li>
+ *   <li>AGENT_PROVISION     → daily    (YYYYMMDD,     e.g. "20260602")</li>
+ *   <li>AGENT_UPDATE       → daily</li>
+ *   <li>AGENT_DELETE       → daily</li>
+ *   <li>AGENT_STATUS_CHANGE → daily</li>
+ *   <li>AGENT_LOGIN        → daily</li>
+ *   <li>AGENT_TOKEN        → hourly</li>
  * </ul>
  */
 public enum CountType {
@@ -44,6 +45,12 @@ public enum CountType {
 
     /** Agent identities removed from the agent userstore. */
     AGENT_DELETE("AGENT_DELETE"),
+
+    /**
+     * Account lock or disable state change applied to an agent identity
+     * (claims {@code accountLocked} or {@code accountDisabled} updated).
+     */
+    AGENT_STATUS_CHANGE("AGENT_STATUS_CHANGE"),
 
     /** Successful authentication events completed by agent identities. */
     AGENT_LOGIN("AGENT_LOGIN"),
