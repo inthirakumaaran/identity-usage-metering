@@ -42,8 +42,7 @@ import java.util.Map;
  * <h3>Agent identification</h3>
  * <p>Only operations on users whose userstore domain matches
  * {@link UsageTrackingConfig#getAgentUserStoreDomain()} (case-insensitive)
- * are counted. The listener is also silently skipped when
- * {@link UsageTrackingConfig#isAgentEnabled()} is {@code false}.
+ * are counted.
  *
  * <h3>How to enable</h3>
  * <ol>

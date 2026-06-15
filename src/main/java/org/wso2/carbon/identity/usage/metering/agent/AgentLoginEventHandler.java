@@ -88,7 +88,6 @@ public class AgentLoginEventHandler extends AbstractEventHandler {
 
     @Override
     public void handleEvent(Event event) throws IdentityEventException {
-        if (!UsageTrackingConfig.isAgentEnabled()) return;
         if (event == null || !EVENT_AUTHENTICATION_SUCCESS.equals(event.getEventName())) return;
 
         Map<String, Object> eventProps = event.getEventProperties();
@@ -129,9 +128,6 @@ public class AgentLoginEventHandler extends AbstractEventHandler {
 
     private static void applyConfig(Properties props) {
         UsageTrackingConfig.setNodeId(props.getProperty(UsageTrackingConfig.PROP_NODE_ID));
-        String enabled = props.getProperty(UsageTrackingConfig.PROP_AGENT_ENABLED);
-        if (enabled != null && !enabled.isBlank())
-            UsageTrackingConfig.setAgentEnabled(Boolean.parseBoolean(enabled));
         UsageTrackingConfig.setAgentUserStoreDomain(
                 props.getProperty(UsageTrackingConfig.PROP_AGENT_USERSTORE_DOMAIN));
         String flushSecs = props.getProperty(UsageTrackingConfig.PROP_AGENT_FLUSH_INTERVAL_SECONDS);
@@ -143,8 +139,7 @@ public class AgentLoginEventHandler extends AbstractEventHandler {
                         flushSecs, UsageTrackingConfig.getAgentFlushIntervalSeconds());
             }
         }
-        LOG.info("[Agent] Config loaded: enabled={}, userStoreDomain={}, flushIntervalSeconds={}s, nodeId={}.",
-                UsageTrackingConfig.isAgentEnabled(),
+        LOG.info("[Agent] Config loaded: userStoreDomain={}, flushIntervalSeconds={}s, nodeId={}.",
                 UsageTrackingConfig.getAgentUserStoreDomain(),
                 UsageTrackingConfig.getAgentFlushIntervalSeconds(),
                 UsageTrackingConfig.getNodeId());

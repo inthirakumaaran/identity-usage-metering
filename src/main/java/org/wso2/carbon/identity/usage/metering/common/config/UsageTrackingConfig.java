@@ -47,11 +47,9 @@ public final class UsageTrackingConfig {
     public static final String PROP_MAU_DB_RETENTION        = "dbRetentionDays";
 
     // M2M
-    public static final String PROP_M2M_ENABLED                  = "enabled";
     public static final String PROP_M2M_FLUSH_INTERVAL_SECONDS   = "flushIntervalSeconds";
 
     // Agent
-    public static final String PROP_AGENT_ENABLED                 = "enabled";
     public static final String PROP_AGENT_USERSTORE_DOMAIN        = "userStoreDomain";
     public static final String PROP_AGENT_FLUSH_INTERVAL_SECONDS  = "flushIntervalSeconds";
 
@@ -66,11 +64,9 @@ public final class UsageTrackingConfig {
     private static final AtomicInteger             mauDbRetentionDays  = new AtomicInteger(60);
 
     // M2M
-    private static final AtomicBoolean             m2mEnabled               = new AtomicBoolean(true);
     private static final AtomicInteger             m2mFlushIntervalSeconds  = new AtomicInteger(3600);
 
     // Agent
-    private static final AtomicBoolean             agentEnabled              = new AtomicBoolean(false);
     private static final AtomicReference<String>   agentUserStoreDomain      = new AtomicReference<>("AGENT");
     private static final AtomicInteger             agentFlushIntervalSeconds = new AtomicInteger(3600);
 
@@ -83,9 +79,7 @@ public final class UsageTrackingConfig {
     public static TimeUnit getMauFlushIntervalUnit()  { return mauFlushIntervalUnit.get(); }
     public static int      getMauCacheRetentionDays() { return mauCacheRetentionDays.get(); }
     public static int      getMauDbRetentionDays()    { return mauDbRetentionDays.get(); }
-    public static boolean  isM2mEnabled()                  { return m2mEnabled.get(); }
     public static int      getM2mFlushIntervalSeconds()    { return m2mFlushIntervalSeconds.get(); }
-    public static boolean  isAgentEnabled()                { return agentEnabled.get(); }
     public static String   getAgentUserStoreDomain()       { return agentUserStoreDomain.get(); }
     public static int      getAgentFlushIntervalSeconds()  { return agentFlushIntervalSeconds.get(); }
 
@@ -99,9 +93,7 @@ public final class UsageTrackingConfig {
     public static void setMauFlushIntervalUnit(TimeUnit v)   { mauFlushIntervalUnit.set(v != null ? v : TimeUnit.MINUTES); }
     public static void setMauCacheRetentionDays(int v)       { mauCacheRetentionDays.set(v); }
     public static void setMauDbRetentionDays(int v)          { mauDbRetentionDays.set(v); }
-    public static void setM2mEnabled(boolean v)                 { m2mEnabled.set(v); }
     public static void setM2mFlushIntervalSeconds(int v)        { if (v > 0) m2mFlushIntervalSeconds.set(v); }
-    public static void setAgentEnabled(boolean v)               { agentEnabled.set(v); }
     public static void setAgentUserStoreDomain(String v)        { if (v != null && !v.isBlank()) agentUserStoreDomain.set(v); }
     public static void setAgentFlushIntervalSeconds(int v)      { if (v > 0) agentFlushIntervalSeconds.set(v); }
 

@@ -130,10 +130,6 @@ public class M2MTokenEventHandler extends AbstractEventHandler {
 
     private static void applyConfig(Properties props) {
         UsageTrackingConfig.setNodeId(props.getProperty(UsageTrackingConfig.PROP_NODE_ID));
-        String enabled = props.getProperty(UsageTrackingConfig.PROP_M2M_ENABLED);
-        if (enabled != null && !enabled.isBlank()) {
-            UsageTrackingConfig.setM2mEnabled(Boolean.parseBoolean(enabled));
-        }
         String flushSecs = props.getProperty(UsageTrackingConfig.PROP_M2M_FLUSH_INTERVAL_SECONDS);
         if (flushSecs != null && !flushSecs.isBlank()) {
             try {
@@ -143,8 +139,7 @@ public class M2MTokenEventHandler extends AbstractEventHandler {
                         flushSecs, UsageTrackingConfig.getM2mFlushIntervalSeconds());
             }
         }
-        LOG.info("[M2M] Config loaded: enabled={}, flushIntervalSeconds={}s, nodeId={}.",
-                UsageTrackingConfig.isM2mEnabled(),
+        LOG.info("[M2M] Config loaded: flushIntervalSeconds={}s, nodeId={}.",
                 UsageTrackingConfig.getM2mFlushIntervalSeconds(),
                 UsageTrackingConfig.getNodeId());
     }
