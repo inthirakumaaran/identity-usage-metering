@@ -12,6 +12,9 @@ package org.wso2.carbon.identity.usage.metering.common.config;
 
 import java.net.InetAddress;
 import java.net.UnknownHostException;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -106,20 +109,37 @@ public final class UsageTrackingConfig {
      * <ol>
      *   <li>Explicit {@code nodeId} in {@code deployment.toml} (set via
      *       {@link #setNodeId(String)} from a handler's {@code init()}).</li>
-     *   <li>{@code hostname_portOffset} — e.g. {@code "is-macbook_1"}.
-     *       The {@code portOffset} system property is set by Carbon when starting
-     *       a second IS instance locally with {@code -DportOffset=N}, making each
-     *       local node produce a unique ID without any manual config.</li>
-     *   <li>Random 16-char hex (container / unknown-host fallback).</li>
+     *   <li>SHA-256 hash of {@code "ip:portOffset"} — e.g. the canonical
+     *       string {@code "192.168.1.10:1"} for a second local node
+     *       ({@code -DportOffset=1}). This is stable across restarts, unique
+     *       per IS instance even when multiple nodes share a host, and
+     *       avoids exposing raw IP addresses in the database.</li>
+     *   <li>SHA-256 hash of a random UUID (container / unknown-host fallback).</li>
      * </ol>
      */
     private static String resolveDefaultNodeId() {
         try {
-            String hostname   = InetAddress.getLocalHost().getHostName();
+            String ip         = InetAddress.getLocalHost().getHostAddress();
             String portOffset = System.getProperty("portOffset", "0");
-            return hostname + "_" + portOffset;
+            String canonical  = ip + ":" + portOffset;
+            return sha256(canonical);
         } catch (UnknownHostException e) {
-            return "node-" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
+            return sha256(UUID.randomUUID().toString());
+        }
+    }
+
+    private static String sha256(String input) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(input.getBytes(StandardCharsets.UTF_8));
+            StringBuilder hex = new StringBuilder(hash.length * 2);
+            for (byte b : hash) {
+                hex.append(String.format("%02x", b));
+            }
+            return hex.toString();  // 64 hex chars, always fits in VARCHAR(128)
+        } catch (NoSuchAlgorithmException e) {
+            // SHA-256 is mandated by the Java spec — this branch is unreachable.
+            throw new RuntimeException("SHA-256 unavailable", e);
         }
     }
 }
