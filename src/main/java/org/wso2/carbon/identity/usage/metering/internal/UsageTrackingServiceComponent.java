@@ -18,6 +18,7 @@ import org.wso2.carbon.identity.event.services.IdentityEventService;
 import org.wso2.carbon.user.core.listener.UserOperationEventListener;
 import org.wso2.carbon.identity.usage.metering.agent.AgentLoginEventHandler;
 import org.wso2.carbon.identity.usage.metering.agent.AgentManagementListener;
+import org.wso2.carbon.identity.usage.metering.agent.AgentTokenEventHandler;
 import org.wso2.carbon.identity.usage.metering.common.CountType;
 import org.wso2.carbon.identity.usage.metering.common.cache.GenericCounterCache;
 import org.wso2.carbon.identity.usage.metering.common.config.UsageTrackingConfig;
@@ -40,14 +41,92 @@ import java.util.concurrent.TimeUnit;
 /**
  * OSGi DS component that wires and activates all usage-tracking handlers.
  *
- * <h3>Components activated</h3>
+ * <p>Deploy the bundle by copying
+ * {@code org.wso2.carbon.identity.usage.metering-1.0.0.jar} to
+ * {@code <IS_HOME>/repository/components/dropins/} and restarting IS.
+ * All handlers are registered automatically on bundle activation.
+ *
+ * <h2>Handlers and deployment.toml configuration</h2>
+ *
+ * <h3>1. MAU – Monthly Active Users</h3>
+ * <p>Counts distinct human users who authenticate at least once per calendar month.
+ * Event: {@code AUTHENTICATION_SUCCESS}.
+ * <pre>
+ * [[event_handler]]
+ * name          = "mauUsageHandler"
+ * subscriptions = ["AUTHENTICATION_SUCCESS"]
+ *
+ * [event_handler.properties]
+ * nodeId              = ""   # leave empty to auto-detect (sha256 of ip:portOffset)
+ * flushInterval       = 15   # how often to flush the in-memory cache to DB
+ * flushIntervalUnit   = "MINUTES"   # SECONDS | MINUTES | HOURS
+ * cacheRetentionDays  = 40   # how long to keep per-user rows in IDN_MAU_COUNT
+ * dbRetentionDays     = 60   # how long to keep aggregated rows in IDN_USAGE_COUNT
+ * </pre>
+ *
+ * <h3>2. M2M Token – Machine-to-Machine token issuances</h3>
+ * <p>Counts new OAuth2 access tokens issued via the {@code client_credentials}
+ * grant. Reuse of existing valid tokens is not counted.
+ * Event: {@code POST_ISSUE_ACCESS_TOKEN_V2}.
+ * <pre>
+ * [[event_handler]]
+ * name          = "m2mTokenUsageHandler"
+ * subscriptions = ["POST_ISSUE_ACCESS_TOKEN_V2"]
+ *
+ * [event_handler.properties]
+ * nodeId                = ""     # leave empty to auto-detect
+ * flushIntervalSeconds  = 3600   # flush interval in seconds (default 1 hour)
+ * </pre>
+ *
+ * <h3>3. Agent Login – Successful logins by agent identities</h3>
+ * <p>Counts every {@code AUTHENTICATION_SUCCESS} event where the authenticated
+ * user resides in the configured agent userstore.  Also controls the flush
+ * interval for ALL other agent counters (token, provision, update, delete,
+ * status-change) via the same properties block.
+ * <pre>
+ * [[event_handler]]
+ * name          = "agentLoginUsageHandler"
+ * subscriptions = ["AUTHENTICATION_SUCCESS"]
+ *
+ * [event_handler.properties]
+ * nodeId                = ""       # leave empty to auto-detect
+ * userStoreDomain       = "AGENT"  # userstore domain where agent identities reside
+ * flushIntervalSeconds  = 3600     # flush interval for ALL agent counters
+ * </pre>
+ *
+ * <h3>4. Agent Token – Tokens obtained on behalf of agent identities</h3>
+ * <p>Counts {@code POST_ISSUE_ACCESS_TOKEN_V2} events where the grant type is
+ * {@code authorization_code} AND the event property {@code ACTOR_TOKEN_PRESENT}
+ * is {@code true} (token-exchange / impersonation flows).  Flush is shared with
+ * the agent login scheduler above.
+ * <pre>
+ * [[event_handler]]
+ * name          = "agentTokenUsageHandler"
+ * subscriptions = ["POST_ISSUE_ACCESS_TOKEN_V2"]
+ * </pre>
+ * <p><em>No separate properties block needed</em> — the flush interval is taken
+ * from {@code agentLoginUsageHandler.flushIntervalSeconds}.
+ *
+ * <h3>5. Agent Management – CRUD and status changes on agent identities</h3>
+ * <p>Registered as an OSGi {@code UserOperationEventListener}; no
+ * {@code [[event_handler]]} block is required.  It activates automatically
+ * alongside the bundle and counts the following operations on users whose
+ * userstore domain matches {@code agentLoginUsageHandler.userStoreDomain}:
  * <ul>
- *   <li><b>MAU</b> – {@link MAULoginEventHandler} / {@link MAUFlushTask}</li>
- *   <li><b>M2M Token</b> – {@link M2MTokenEventHandler} /
- *       {@link CounterFlushTask}(M2M_TOKEN)</li>
- *   <li><b>Agent Login</b> – {@link AgentLoginEventHandler} /
- *       {@link CounterFlushTask}(AGENT_LOGIN) — stub</li>
- *   <li><b>Agent CRUD</b> – {@link AgentManagementListener} — stub</li>
+ *   <li>{@code AGENT_PROVISION} – new agent identity created.</li>
+ *   <li>{@code AGENT_DELETE} – agent identity removed.</li>
+ *   <li>{@code AGENT_UPDATE} – credential changed (self or admin reset).</li>
+ *   <li>{@code AGENT_STATUS_CHANGE} – account locked or disabled claim updated.</li>
+ * </ul>
+ *
+ * <h2>Where counts are stored</h2>
+ * <ul>
+ *   <li>{@code IDN_MAU_COUNT} – per-user login rows used for distinct-user
+ *       counting (MAU only).</li>
+ *   <li>{@code IDN_USAGE_COUNT} – aggregated counts for all metrics, keyed by
+ *       {@code (NODE_ID, TENANT_DOMAIN, COUNT_TYPE, COUNT_PERIOD)}.
+ *       Multi-node writes use {@code ON DUPLICATE KEY UPDATE COUNT = COUNT + VALUES(COUNT)}
+ *       so counts accumulate safely across nodes without overwriting each other.</li>
  * </ul>
  */
 public class UsageTrackingServiceComponent {
@@ -63,9 +142,9 @@ public class UsageTrackingServiceComponent {
         LOG.info("[Usage] Activating Usage Tracking Service Component.");
 
         // Shared scheduler — one thread per registered periodic task.
-        // 7 periodic tasks: MAU flush, M2M flush, agent login flush,
+        // 8 periodic tasks: MAU flush, M2M flush, agent login/token flush,
         // agent provision/update/delete/status-change flushes.
-        scheduler = Executors.newScheduledThreadPool(7, r -> {
+        scheduler = Executors.newScheduledThreadPool(8, r -> {
             Thread t = new Thread(r, "usage-tracking-scheduler");
             t.setDaemon(true);
             return t;
@@ -99,13 +178,17 @@ public class UsageTrackingServiceComponent {
         // the configured flushIntervalSeconds (default 3600s).
         // A single deployment.toml block controls the interval for ALL agent counters.
         GenericCounterCache agentLoginCache  = new GenericCounterCache();
+        GenericCounterCache agentTokenCache  = new GenericCounterCache();
         GenericCounterCache agentProvCache   = new GenericCounterCache();
         GenericCounterCache agentUpdCache    = new GenericCounterCache();
         GenericCounterCache agentDelCache    = new GenericCounterCache();
         GenericCounterCache agentStatusCache = new GenericCounterCache();
 
+        // All 6 agent flush tasks are scheduled by AgentLoginEventHandler.init()
+        // using the single flushIntervalSeconds from deployment.toml.
         List<CounterFlushTask> agentFlushTasks = Arrays.asList(
                 new CounterFlushTask(CountType.AGENT_LOGIN,         agentLoginCache,  usageDao),
+                new CounterFlushTask(CountType.AGENT_TOKEN,         agentTokenCache,  usageDao),
                 new CounterFlushTask(CountType.AGENT_PROVISION,     agentProvCache,   usageDao),
                 new CounterFlushTask(CountType.AGENT_UPDATE,        agentUpdCache,    usageDao),
                 new CounterFlushTask(CountType.AGENT_DELETE,        agentDelCache,    usageDao),
@@ -115,11 +198,14 @@ public class UsageTrackingServiceComponent {
         AgentLoginEventHandler agentLoginHandler =
                 new AgentLoginEventHandler(scheduler, agentFlushTasks, agentLoginCache);
 
+        AgentTokenEventHandler agentTokenHandler = new AgentTokenEventHandler(agentTokenCache);
+
         AgentManagementListener agentMgmt = new AgentManagementListener(
                 UsageTrackingConfig.getAgentUserStoreDomain(),
                 agentProvCache, agentUpdCache, agentDelCache, agentStatusCache);
 
         registerHandler(ctx, agentLoginHandler, agentLoginHandler.getName());
+        registerHandler(ctx, agentTokenHandler, agentTokenHandler.getName());
         ctx.getBundleContext().registerService(
                 UserOperationEventListener.class.getName(), agentMgmt, null);
 

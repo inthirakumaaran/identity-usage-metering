@@ -56,8 +56,9 @@ public enum CountType {
     AGENT_LOGIN("AGENT_LOGIN"),
 
     /**
-     * Access tokens obtained by or on behalf of agent identities.
-     * Tracking strategy is still under design.
+     * Access tokens obtained on behalf of agent identities via the
+     * {@code authorization_code} grant where {@code ACTOR_TOKEN_PRESENT=true}
+     * (token-exchange / impersonation flows).
      */
     AGENT_TOKEN("AGENT_TOKEN");
 
